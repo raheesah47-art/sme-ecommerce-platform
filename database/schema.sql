@@ -1,94 +1,17 @@
--- SMEConnect — schema for delivery tracking, delivery fee estimator, trust score
--- Import this in phpMyAdmin / MySQL first, then run seed.sql
-
-
 CREATE DATABASE IF NOT EXISTS smeconnect CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE smeconnect;
--- ---------- Product catalog ----------
--- References the existing `sellers` table (not a new seller concept).
-CREATE TABLE products (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  seller_id INT NOT NULL,
-  name VARCHAR(150) NOT NULL,
-  category VARCHAR(60) NOT NULL,
-  price DECIMAL(10,2) NOT NULL,
-  compare_at_price DECIMAL(10,2) DEFAULT NULL,  -- original price, for showing a discount; NULL = no discount
-  stock_qty INT NOT NULL DEFAULT 0,
-  status ENUM('active','draft') NOT NULL DEFAULT 'active',
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (seller_id) REFERENCES sellers(id)
-) ENGINE=InnoDB;
- 
--- ---------- Cart ----------
--- Session-based: no login required to add to cart.
--- cart_token is a random string stored in the PHP session (see includes/cart.php).
-CREATE TABLE cart_items (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  cart_token VARCHAR(64) NOT NULL,
-  product_id INT NOT NULL,
-  quantity INT NOT NULL DEFAULT 1,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (product_id) REFERENCES products(id),
-  INDEX idx_cart_token (cart_token)
-) ENGINE=InnoDB;
- 
--- ---------- Order line items ----------
--- `orders` already stores subtotal/delivery/total, but not which products were bought.
-CREATE TABLE order_items (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  order_id INT NOT NULL,
-  product_id INT NOT NULL,
-  quantity INT NOT NULL,
-  unit_price DECIMAL(10,2) NOT NULL,  -- price at time of purchase, in case product.price changes later
-  FOREIGN KEY (order_id) REFERENCES orders(id),
-  FOREIGN KEY (product_id) REFERENCES products(id)
-) ENGINE=InnoDB;
-
-CREATE DATABASE IF NOT EXISTS smeconnect CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE smeconnect;
-
--- ---------- Delivery fee estimator ----------
-CREATE TABLE districts (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(60) NOT NULL,
-  base_fee DECIMAL(10,2) NOT NULL,
-  free_delivery_threshold DECIMAL(10,2) NOT NULL DEFAULT 1500.00
-) ENGINE=InnoDB;
-
--- ---------- Trust score ----------
-CREATE TABLE sellers (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  business_name VARCHAR(120) NOT NULL,
-  district_id INT,
-  avg_rating DECIMAL(3,2) NOT NULL DEFAULT 0,      -- out of 5
-  response_rate DECIMAL(5,2) NOT NULL DEFAULT 0,   -- percentage, 0-100
-  disputes_count INT NOT NULL DEFAULT 0,
-  id_verified TINYINT(1) NOT NULL DEFAULT 0,
-  joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (district_id) REFERENCES districts(id)
-) ENGINE=InnoDB;
-
--- ---------- Orders + delivery tracking ----------
-CREATE TABLE orders (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  order_code VARCHAR(20) NOT NULL UNIQUE,
-  buyer_name VARCHAR(120),
-  seller_id INT NOT NULL,
-  district_id INT NOT NULL,
-  subtotal DECIMAL(10,2) NOT NULL,
-  delivery_fee DECIMAL(10,2) NOT NULL,
-  total DECIMAL(10,2) NOT NULL,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (seller_id) REFERENCES sellers(id),
-  FOREIGN KEY (district_id) REFERENCES districts(id)
-) ENGINE=InnoDB;
-
-CREATE TABLE order_status_log (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  order_id INT NOT NULL,
-  status ENUM('placed','confirmed','out_for_delivery','delivered') NOT NULL,
-  note VARCHAR(255),
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (order_id) REFERENCES orders(id)
-) ENGINE=InnoDB;
+SET FOREIGN_KEY_CHECKS=0;
+DROP TABLE IF EXISTS order_status_log, order_items, reviews, wishlist, orders, product_images, products, categories, smes, users, districts;
+SET FOREIGN_KEY_CHECKS=1;
+CREATE TABLE users(id INT AUTO_INCREMENT PRIMARY KEY,full_name VARCHAR(120) NOT NULL,email VARCHAR(190) NOT NULL UNIQUE,password_hash VARCHAR(255) NOT NULL,role ENUM('customer','sme','admin') NOT NULL DEFAULT 'customer',phone VARCHAR(30),address VARCHAR(255),district VARCHAR(80),status ENUM('active','suspended') NOT NULL DEFAULT 'active',created_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB;
+CREATE TABLE districts(id INT AUTO_INCREMENT PRIMARY KEY,name VARCHAR(80) NOT NULL UNIQUE,base_fee DECIMAL(10,2) NOT NULL DEFAULT 60,free_delivery_threshold DECIMAL(10,2) NOT NULL DEFAULT 1500) ENGINE=InnoDB;
+CREATE TABLE smes(id INT AUTO_INCREMENT PRIMARY KEY,user_id INT NOT NULL UNIQUE,business_name VARCHAR(150) NOT NULL,district VARCHAR(80),business_phone VARCHAR(30),description TEXT,logo_path VARCHAR(255),verified_by_admin TINYINT(1) NOT NULL DEFAULT 0,trust_score DECIMAL(5,2) NOT NULL DEFAULT 0,status ENUM('active','pending','suspended') NOT NULL DEFAULT 'active',created_at DATETIME DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE) ENGINE=InnoDB;
+CREATE TABLE categories(id INT AUTO_INCREMENT PRIMARY KEY,name VARCHAR(100) NOT NULL UNIQUE,slug VARCHAR(120) NOT NULL UNIQUE) ENGINE=InnoDB;
+CREATE TABLE products(id INT AUTO_INCREMENT PRIMARY KEY,sme_id INT NOT NULL,name VARCHAR(150) NOT NULL,slug VARCHAR(180) NOT NULL UNIQUE,description TEXT,price DECIMAL(10,2) NOT NULL,stock_quantity INT NOT NULL DEFAULT 0,status ENUM('active','draft') NOT NULL DEFAULT 'active',created_at DATETIME DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(sme_id) REFERENCES smes(id) ON DELETE CASCADE) ENGINE=InnoDB;
+CREATE TABLE product_categories(product_id INT NOT NULL,category_id INT NOT NULL,PRIMARY KEY(product_id,category_id),FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE,FOREIGN KEY(category_id) REFERENCES categories(id) ON DELETE CASCADE) ENGINE=InnoDB;
+CREATE TABLE product_images(id INT AUTO_INCREMENT PRIMARY KEY,product_id INT NOT NULL,image_path VARCHAR(255) NOT NULL,is_primary TINYINT(1) DEFAULT 0,sort_order INT DEFAULT 0,FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE) ENGINE=InnoDB;
+CREATE TABLE wishlist(user_id INT NOT NULL,product_id INT NOT NULL,created_at DATETIME DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(user_id,product_id),FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE) ENGINE=InnoDB;
+CREATE TABLE orders(id INT AUTO_INCREMENT PRIMARY KEY,order_code VARCHAR(24) NOT NULL UNIQUE,user_id INT NOT NULL,buyer_name VARCHAR(120) NOT NULL,address VARCHAR(255) NOT NULL,district VARCHAR(80) NOT NULL,subtotal DECIMAL(10,2) NOT NULL,delivery_fee DECIMAL(10,2) NOT NULL,total DECIMAL(10,2) NOT NULL,status ENUM('placed','confirmed','out_for_delivery','delivered','cancelled') NOT NULL DEFAULT 'placed',created_at DATETIME DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(user_id) REFERENCES users(id)) ENGINE=InnoDB;
+CREATE TABLE order_items(id INT AUTO_INCREMENT PRIMARY KEY,order_id INT NOT NULL,product_id INT NOT NULL,sme_id INT NOT NULL,quantity INT NOT NULL,unit_price DECIMAL(10,2) NOT NULL,FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,FOREIGN KEY(product_id) REFERENCES products(id),FOREIGN KEY(sme_id) REFERENCES smes(id)) ENGINE=InnoDB;
+CREATE TABLE order_status_log(id INT AUTO_INCREMENT PRIMARY KEY,order_id INT NOT NULL,status ENUM('placed','confirmed','out_for_delivery','delivered','cancelled') NOT NULL,note VARCHAR(255),created_at DATETIME DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE) ENGINE=InnoDB;
+CREATE TABLE reviews(id INT AUTO_INCREMENT PRIMARY KEY,user_id INT NOT NULL,product_id INT NOT NULL,rating TINYINT NOT NULL,comment TEXT,created_at DATETIME DEFAULT CURRENT_TIMESTAMP,UNIQUE KEY one_review(user_id,product_id),FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE) ENGINE=InnoDB;
