@@ -1,6 +1,50 @@
 -- SMEConnect — schema for delivery tracking, delivery fee estimator, trust score
 -- Import this in phpMyAdmin / MySQL first, then run seed.sql
 
+
+CREATE DATABASE IF NOT EXISTS smeconnect CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE smeconnect;
+-- ---------- Product catalog ----------
+-- References the existing `sellers` table (not a new seller concept).
+CREATE TABLE products (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  seller_id INT NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  category VARCHAR(60) NOT NULL,
+  price DECIMAL(10,2) NOT NULL,
+  compare_at_price DECIMAL(10,2) DEFAULT NULL,  -- original price, for showing a discount; NULL = no discount
+  stock_qty INT NOT NULL DEFAULT 0,
+  status ENUM('active','draft') NOT NULL DEFAULT 'active',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (seller_id) REFERENCES sellers(id)
+) ENGINE=InnoDB;
+ 
+-- ---------- Cart ----------
+-- Session-based: no login required to add to cart.
+-- cart_token is a random string stored in the PHP session (see includes/cart.php).
+CREATE TABLE cart_items (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  cart_token VARCHAR(64) NOT NULL,
+  product_id INT NOT NULL,
+  quantity INT NOT NULL DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (product_id) REFERENCES products(id),
+  INDEX idx_cart_token (cart_token)
+) ENGINE=InnoDB;
+ 
+-- ---------- Order line items ----------
+-- `orders` already stores subtotal/delivery/total, but not which products were bought.
+CREATE TABLE order_items (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  order_id INT NOT NULL,
+  product_id INT NOT NULL,
+  quantity INT NOT NULL,
+  unit_price DECIMAL(10,2) NOT NULL,  -- price at time of purchase, in case product.price changes later
+  FOREIGN KEY (order_id) REFERENCES orders(id),
+  FOREIGN KEY (product_id) REFERENCES products(id)
+) ENGINE=InnoDB;
+
 CREATE DATABASE IF NOT EXISTS smeconnect CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE smeconnect;
 

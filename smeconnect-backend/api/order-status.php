@@ -1,45 +1,43 @@
 <?php
-// GET /api/trust-score.php?seller_id=1
+// GET /api/order-status.php?order_code=SC-10493
+// (Your current order-status.php is a copy-paste of trust-score.php —
+// this replaces it with the actual order-tracking logic.)
 header('Content-Type: application/json');
 require __DIR__ . '/../includes/db.php';
 
-$sellerId = isset($_GET['seller_id']) ? (int) $_GET['seller_id'] : 0;
+$orderCode = isset($_GET['order_code']) ? strtoupper(trim($_GET['order_code'])) : '';
 
-if (!$sellerId) {
+if (!$orderCode) {
     http_response_code(400);
-    echo json_encode(['error' => 'seller_id is required']);
+    echo json_encode(['error' => 'order_code is required']);
     exit;
 }
 
 $pdo = get_db();
-$stmt = $pdo->prepare('SELECT * FROM sellers WHERE id = ?');
-$stmt->execute([$sellerId]);
-$seller = $stmt->fetch();
+$stmt = $pdo->prepare('SELECT o.id, o.order_code, o.buyer_name, o.subtotal, o.delivery_fee, o.total, s.business_name AS seller_name
+                        FROM orders o
+                        JOIN sellers s ON s.id = o.seller_id
+                        WHERE o.order_code = ?');
+$stmt->execute([$orderCode]);
+$order = $stmt->fetch();
 
-if (!$seller) {
+if (!$order) {
     http_response_code(404);
-    echo json_encode(['error' => 'Seller not found']);
+    echo json_encode(['error' => 'Order not found']);
     exit;
 }
 
-// Trust score formula — 4 weighted factors, capped 0-100.
-// Documented here so it's easy to defend in a dissertation write-up.
-$ratingScore   = (min((float) $seller['avg_rating'], 5) / 5) * 40;      // up to 40 pts
-$verifiedScore = ((int) $seller['id_verified'] === 1) ? 20 : 0;         // 20 pts if ID-verified
-$responseScore = (min((float) $seller['response_rate'], 100) / 100) * 20; // up to 20 pts
-$disputeScore  = max(0, 20 - ((int) $seller['disputes_count'] * 5));    // up to 20 pts, -5 per dispute
+$stmt = $pdo->prepare('SELECT status, note, created_at FROM order_status_log WHERE order_id = ? ORDER BY id ASC');
+$stmt->execute([$order['id']]);
+$history = $stmt->fetchAll();
 
-$total = (int) round($ratingScore + $verifiedScore + $responseScore + $disputeScore);
-$total = max(0, min(100, $total));
+$latestStatus = $history ? end($history)['status'] : 'placed';
 
 echo json_encode([
-    'seller_id'   => (int) $seller['id'],
-    'seller'      => $seller['business_name'],
-    'trust_score' => $total,
-    'breakdown'   => [
-        'rating'         => round($ratingScore, 1),
-        'verified'       => $verifiedScore,
-        'responsiveness' => round($responseScore, 1),
-        'dispute_record' => $disputeScore,
-    ],
+    'order_code'    => $order['order_code'],
+    'buyer_name'    => $order['buyer_name'],
+    'seller_name'   => $order['seller_name'],
+    'total'         => (float) $order['total'],
+    'latest_status' => $latestStatus,
+    'history'       => $history,
 ]);

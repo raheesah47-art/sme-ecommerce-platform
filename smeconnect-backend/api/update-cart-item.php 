@@ -1,0 +1,31 @@
+
+<?php
+
+// POST /api/update-cart-item.php  {cart_item_id, quantity}
+// quantity 0 (or less) removes the item. Powers the +/- buttons in the cart panel.
+
+header('Content-Type: application/json');
+session_start();
+require __DIR__ . '/../includes/db.php';
+require __DIR__ . '/../includes/cart.php';
+
+$data       = json_decode(file_get_contents('php://input'), true) ?? [];
+$cartItemId = isset($data['cart_item_id']) ? (int) $data['cart_item_id'] : 0;
+$quantity   = isset($data['quantity']) ? (int) $data['quantity'] : 0;
+
+if (!$cartItemId) {
+    http_response_code(400);
+    echo json_encode(['error' => 'cart_item_id is required']);
+    exit;
+}
+
+$pdo    = get_db();
+$result = update_cart_item($pdo, $cartItemId, $quantity);
+
+if (!$result['success']) {
+    http_response_code(400);
+    echo json_encode(['error' => $result['error']]);
+    exit;
+}
+
+echo json_encode(get_cart($pdo));

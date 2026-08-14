@@ -1,0 +1,28 @@
+<?php
+// POST /api/add-to-cart.php  {product_id, quantity?}
+// Returns the full updated cart (see includes/cart.php get_cart()).
+header('Content-Type: application/json');
+session_start();
+require __DIR__ . '/../includes/db.php';
+require __DIR__ . '/../includes/cart.php';
+
+$data      = json_decode(file_get_contents('php://input'), true) ?? [];
+$productId = isset($data['product_id']) ? (int) $data['product_id'] : 0;
+$quantity  = isset($data['quantity']) ? (int) $data['quantity'] : 1;
+
+if (!$productId) {
+    http_response_code(400);
+    echo json_encode(['error' => 'product_id is required']);
+    exit;
+}
+
+$pdo    = get_db();
+$result = add_to_cart($pdo, $productId, $quantity);
+
+if (!$result['success']) {
+    http_response_code(400);
+    echo json_encode(['error' => $result['error']]);
+    exit;
+}
+
+echo json_encode(get_cart($pdo));
